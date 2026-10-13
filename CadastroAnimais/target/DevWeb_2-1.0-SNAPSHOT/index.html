@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Notícias</title>
+</head>
+<body>
+    <header><nav id="menu"></nav></header>
+    <main>
+        <section>
+            <h2>Últimas notícias</h2>
+            <label for="filtro">Empresa:</label>
+            <select id="filtro"><option value="">Todas</option></select>
+        </section>
+        <section id="lista"><p>Carregando...</p></section>
+    </main>
+    <script src="js/app.js"></script>
+    <script>
+        (async function () {
+            var s = await App.api('GET', 'sessao');
+            App.menu(s);
+
+            var filtro = document.getElementById('filtro');
+            (await App.api('GET', 'empresas')).forEach(function (e) {
+                filtro.appendChild(App.h('option', { value: e.id }, e.nome));
+            });
+
+            async function carregar() {
+                var lista = document.getElementById('lista');
+                var q = filtro.value ? '?empresa=' + encodeURIComponent(filtro.value) : '';
+                var noticias = await App.api('GET', 'noticias' + q);
+                App.limpar(lista);
+                if (!noticias.length) lista.appendChild(App.h('p', null, 'Nenhuma notícia publicada.'));
+                noticias.forEach(function (n) {
+                    lista.appendChild(App.h('article', null,
+                        App.h('h3', null, n.titulo),
+                        App.h('p', null, App.h('strong', null, n.empresa), ' · ' + App.dataHora(n.data) + ' · por ' + n.autor),
+                        App.h('p', { style: 'white-space: pre-wrap' }, n.texto)));
+                });
+            }
+            filtro.addEventListener('change', carregar);
+            carregar();
+        })();
+    </script>
+</body>
+</html>

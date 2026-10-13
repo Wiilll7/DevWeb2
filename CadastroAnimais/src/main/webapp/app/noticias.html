@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Minhas notícias</title>
+    <link rel="stylesheet" href="https://unpkg.com/mvp.css">
+</head>
+<body>
+    <header><nav id="menu"></nav></header>
+    <main>
+        <section>
+            <p id="contexto"></p>
+            <h2 id="titulo-form">Cadastrar notícia</h2>
+            <form id="form">
+                <input type="hidden" id="id">
+                <label for="titulo">Título:</label>
+                <input type="text" id="titulo" maxlength="150" required>
+                <label for="texto">Texto:</label>
+                <textarea id="texto" rows="5" maxlength="4000" required></textarea>
+                <button type="submit" id="salvar">Publicar</button>
+                <button type="button" id="cancelar" hidden>Cancelar edição</button>
+                <p id="msg" role="alert"></p>
+            </form>
+        </section>
+        <hr>
+        <section>
+            <h2>Notícias da minha empresa</h2>
+            <table>
+                <thead><tr><th>Data</th><th>Título</th><th>Autor</th><th></th></tr></thead>
+                <tbody id="lista"></tbody>
+            </table>
+        </section>
+    </main>
+    <script src="../js/app.js"></script>
+    <script>
+        (async function () {
+            var s = await App.exigirLogin(false);
+            if (!s) return;
+            var msg = document.getElementById('msg');
+            var f = { id: document.getElementById('id'), titulo: document.getElementById('titulo'), texto: document.getElementById('texto') };
+
+            function resetar() {
+                f.id.value = f.titulo.value = f.texto.value = '';
+                document.getElementById('titulo-form').textContent = 'Cadastrar notícia';
+                document.getElementById('salvar').textContent = 'Publicar';
+                document.getElementById('cancelar').hidden = true;
+            }
+            function editar(n) {
+                f.id.value = n.id; f.titulo.value = n.titulo; f.texto.value = n.texto;
+                document.getElementById('titulo-form').textContent = 'Editar notícia';
+                document.getElementById('salvar').textContent = 'Salvar alterações';
+                document.getElementById('cancelar').hidden = false;
+                window.scrollTo(0, 0);
+            }
+
+            async function carregar() {
+                var tb = document.getElementById('lista');
+                var lista = await App.api('GET', 'noticias?empresa=' + s.empresaId);
+                App.limpar(tb);
+                if (!lista.length) tb.appendChild(App.h('tr', null, App.h('td', { colspan: 4 }, 'Nenhuma notícia cadastrada.')));
+                lista.forEach(function (n) {
+                    tb.appendChild(App.h('tr', null,
+                        App.h('td', null, App.dataHora(n.data)),
+                        App.h('td', null, n.titulo),
+                        App.h('td', null, n.autor),
+                        App.h('td', null,
+                            App.h('a', { href: '#', onclick: function (ev) { ev.preventDefault(); editar(n); } }, 'Editar'), ' | ',
+                            App.h('a', { href: '#', onclick: async function (ev) {
+                                ev.preventDefault();
+                                if (!confirm('Excluir esta notícia?')) return;
+                                try { await App.api('DELETE', 'noticias?id=' + n.id); carregar(); }
+                                catch (e) { App.mensagem(msg, e.message, true); }
+                            } }, 'Excluir'))));
+                });
+            }
+
+            document.getElementById('cancelar').addEventListener('click', resetar);
+            document.getElementById('form').addEventListener('submit', async function (ev) {
+                ev.preventDefault();
+                try {
+                    await App.api('POST', 'noticias', { id: f.id.value, titulo: f.titulo.value, texto: f.texto.value });
+                    resetar();
+                    App.mensagem(msg, 'Notícia salva.', false);
+                    carregar();
+                } catch (e) { App.mensagem(msg, e.message, true); }
+            });
+            carregar();
+        })();
+    </script>
+</body>
+</html>

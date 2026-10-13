@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Context path="/DevWeb_2"/>
+<Context path="/DevWeb_2">
+    <!-- Cookie de sessão não é enviado em requisições vindas de outros sites (defesa extra contra CSRF) -->
+    <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor" sameSiteCookies="lax"/>
+</Context>

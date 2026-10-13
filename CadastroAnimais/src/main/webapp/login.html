@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Entrar</title>
+    <link rel="stylesheet" href="https://unpkg.com/mvp.css">
+</head>
+<body>
+    <header><nav id="menu"></nav></header>
+    <main>
+        <section>
+            <h2>Entrar</h2>
+            <form id="form">
+                <label for="empresa">Empresa:</label>
+                <select id="empresa" required><option value="">Selecione...</option></select>
+
+                <label for="usuario">Usuário:</label>
+                <input type="text" id="usuario" autocomplete="username" required>
+
+                <label for="senha">Senha:</label>
+                <input type="password" id="senha" autocomplete="current-password" required>
+
+                <button type="submit">Entrar</button>
+                <p id="msg" role="alert"></p>
+            </form>
+        </section>
+    </main>
+    <script src="js/app.js"></script>
+    <script>
+        (async function () {
+            var s = await App.api('GET', 'sessao');
+            if (s.autenticado) { location.href = App.BASE + 'app/noticias.html'; return; }
+            App.menu(null);
+
+            var sel = document.getElementById('empresa');
+            (await App.api('GET', 'empresas')).forEach(function (e) {
+                sel.appendChild(App.h('option', { value: e.id }, e.nome));
+            });
+
+            document.getElementById('form').addEventListener('submit', async function (ev) {
+                ev.preventDefault();
+                var msg = document.getElementById('msg');
+                try {
+                    await App.api('POST', 'login', {
+                        empresa: sel.value,
+                        usuario: document.getElementById('usuario').value,
+                        senha: document.getElementById('senha').value
+                    });
+                    location.href = App.BASE + 'app/noticias.html';
+                } catch (e) {
+                    App.mensagem(msg, e.message, true);
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
