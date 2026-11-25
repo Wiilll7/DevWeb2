@@ -1,0 +1,161 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+\IfFileExists{brazilian.ldf}{\usepackage[brazilian]{babel}}{%
+  \usepackage[english]{babel}
+  \hyphenpenalty=10000 \exhyphenpenalty=10000 \emergencystretch=3em
+  \addto\captionsenglish{\renewcommand{\abstractname}{Resumo}\renewcommand{\figurename}{Figura}%
+    \renewcommand{\tablename}{Tabela}\renewcommand{\refname}{Refer\^encias}%
+    \renewcommand{\listfigurename}{Lista de figuras}}}
+\usepackage{lmodern,graphicx,booktabs,listings,xcolor,float,caption,hyperref,geometry,setspace}
+\geometry{margin=2.5cm}
+\onehalfspacing
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=blue!50!black,urlcolor=blue!50!black}
+\captionsetup{font=small,labelfont=bf}
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,frame=single,numbers=left,
+  numberstyle=\tiny,keywordstyle=\color{blue!60!black},commentstyle=\color{gray},
+  language=Python,showstringspaces=false,extendedchars=true,
+  literate={ã}{{\~a}}1 {á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+           {ç}{{\c c}}1 {ê}{{\^e}}1 {ô}{{\^o}}1 {õ}{{\~o}}1 {â}{{\^a}}1 {à}{{\`a}}1 {Á}{{\'A}}1}
+
+
+\newcommand{\printlog}[3]{\begin{figure}[H]\centering
+  \includegraphics[width=0.92\textwidth]{figuras/#1.png}
+  \caption{#2}\label{#3}\end{figure}}
+
+\title{Mensageria com o protocolo AMQP 1.0 e Apache ActiveMQ em Docker:\\
+publicação periódica, \textit{fan-out} e persistência}
+\author{Willian Moretti\\ Desenvolvimento WEB 2 -- IFC Rio do Sul}
+\date{24 de novembro de 2026}
+
+\AtBeginDocument{\renewcommand{\lstlistingname}{Listagem}}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este trabalho implementa e analisa um sistema de mensageria baseado no protocolo AMQP 1.0 sobre o \textit{broker} Apache ActiveMQ executado em contêiner Docker. Foram desenvolvidos um cliente publicador, que envia cinco mensagens com intervalo de um minuto, e cinco instâncias de consumidores, cada uma lendo uma única mensagem. Exploram-se quatro opções de entrega: fila, tópico com \textit{fan-out}, mensagens persistentes com reinício do \textit{broker} e assinatura durável.
+\end{abstract}
+
+\section{Introdução}
+Protocolos de mensageria desacoplam produtores e consumidores de dados no espaço, no tempo e na sincronização, e são centrais em cenários de Internet das Coisas, \textit{fog computing} e aplicações distribuídas sensíveis ao tempo. Entre eles, o \textit{Advanced Message Queuing Protocol} (AMQP) se destaca por oferecer garantias de entrega, roteamento flexível e diversas opções de segurança, ao custo de maior consumo de recursos.
+
+O objetivo deste trabalho é, a partir de uma implementação prática, demonstrar o funcionamento do AMQP 1.0 com o ActiveMQ e explorar as opções de envio de mensagens, relacionando os resultados ao referencial teórico. O código completo está disponível no repositório indicado na Seção~\ref{sec:entrega}.
+
+\section{Referencial teórico}
+\subsection{Publish/subscribe e brokers}
+Em sistemas \textit{publish/subscribe}, o cliente não consulta periodicamente o servidor; ele se inscreve em um interesse e é notificado quando há dados novos. A comunicação costuma ser mediada por um \textit{broker} e organizada em torno de publicadores e assinantes que trocam dados por meio de um identificador, o \textit{tópico}~\cite{bezerra2024}. Eugster et al.~\cite{eugster2003} classificam o desacoplamento resultante em três dimensões: espaço (as partes não se conhecem), tempo (não precisam estar ativas simultaneamente) e sincronização (o envio e o recebimento não bloqueiam a execução). Essas propriedades fundamentam os experimentos E3 e E4 deste trabalho.
+
+\subsection{AMQP 1.0}
+O AMQP é um protocolo binário de camada de aplicação, padronizado pela OASIS, executado sobre TCP e independente de fornecedor. A versão 1.0 define apenas o protocolo de transferência entre pares, a semântica de filas e tópicos é decidida pelo \textit{broker} a partir do endereço do \textit{link}. Conceitos relevantes:
+\begin{itemize}
+  \item \textbf{Connection/Session/Link:} a conexão agrupa sessões, e cada sessão agrupa \textit{links} unidirecionais ligados a um endereço.
+  \item \textbf{Liquidação (\textit{settlement}):} o receptor confirma (\textit{accepted}), rejeita ou libera a mensagem. O remetente sabe se o \textit{broker} aceitou.
+  \item \textbf{Cabeçalho \texttt{durable}:} indica que a mensagem deve sobreviver à reinicialização do \textit{broker}. No ActiveMQ equivale ao modo de entrega persistente.
+  \item \textbf{Durabilidade de terminal:} um receptor pode declarar origem durável, mantendo o estado da assinatura enquanto estiver desconectado.
+\end{itemize}
+
+\subsection{Apache ActiveMQ}
+O Apache ActiveMQ é um \textit{broker} de código aberto escrito em Java que suporta múltiplos protocolos (OpenWire, AMQP, MQTT, STOMP). Dois modelos de destino são relevantes:
+\begin{description}
+  \item[Fila (\textit{queue}):] cada mensagem é entregue a um único consumidor entre os conectados, sendo retida até ser consumida.
+  \item[Tópico (\textit{topic}):] cada mensagem é entregue a todos os assinantes ativos, caracterizando o \textit{fan-out}. Sem assinatura durável, quem estiver desconectado perde a mensagem.
+\end{description}
+
+\subsection{Desempenho do AMQP segundo o artigo-base}
+O estudo compara AMQP, MQTT e STOMP em um cenário de piscicultura com IoT, medindo tempo de conexão e publicação, memória e tráfego, com e sem autenticação, em 100 instâncias por execução. Os dados do tráfego mostram que o AMQP troca mais pacotes e bytes que MQTT e STOMP.
+
+\begin{table}[H]\centering
+\caption{Tráfego por protocolo e configuração de segurança, em bytes (adaptado de \cite{bezerra2024}).}\label{tab:paper}
+\begin{tabular}{lrrrrr}\toprule
+Protocolo (segurança) & Maior & Menor & Média & Total & Pacotes\\\midrule
+AMQP (autenticado) & 578 & 74 & 116 & 2088 & 18\\
+MQTT (autenticado) & 106 & 70 & 90 & 718 & 8\\
+STOMP (autenticado) & 171 & 74 & 90 & 1429 & 16\\\bottomrule
+\end{tabular}\end{table}
+
+Segundo os autores, o AMQP consumiu cerca de 9~MB de memória por instância com autenticação, contra aproximadamente 1~MB do MQTT, e apresentou o maior tempo de conexão; em contrapartida, foi o mais rápido na publicação, o que atribuem à sua capacidade \textit{full-duplex}. A conclusão do artigo é que não há protocolo ideal para todos os casos: o AMQP é recomendado para ambientes com energia e rede confiáveis e maior necessidade de confiabilidade (cenário \textit{Farm~1}), enquanto MQTT é preferível em dispositivos restritos. Os autores também ressalvam que, no AMQP, a configuração sem autenticação usou o usuário padrão do RabbitMQ (\texttt{guest/guest}), devendo ser tomada apenas como referência, e apontam vulnerabilidades conhecidas do protocolo~\cite{mcateer2017}. Esses resultados orientam a interpretação dos experimentos: o custo extra do AMQP é o preço de garantias (confirmação, persistência, durabilidade) que serão exercitadas na Seção~\ref{sec:exp}.
+
+\section{Metodologia e implementação}
+\subsection{Ambiente}
+O \textit{broker} é a imagem oficial \texttt{apache/activemq-classic}, executada com Docker Compose (Listagem~\ref{lst:compose}), expondo a porta AMQP (5672) e o console web (8161). Um volume Docker preserva o diretório de dados (KahaDB), necessário para o experimento de persistência. Os clientes são escritos em Python com a biblioteca Qpid Proton~\cite{proton}, que implementa AMQP 1.0. Os experimentos foram executados manualmente em um computador com Zorin OS (base Ubuntu 22.04), Docker 29.9.3 e Python 3.10, usando dois terminais: o terminal A para os consumidores e o terminal B para o publicador e para os comandos de consulta. O \textit{script} \texttt{stats.py} consulta o ActiveMQ via Jolokia (porta 8161) e imprime \texttt{QueueSize} (mensagens retidas), \texttt{Enqueue} (mensagens recebidas pelo destino), \texttt{Dequeue} (mensagens entregues e confirmadas) e \texttt{Consumers} (consumidores conectados). Os \textit{prints} das figuras são capturas de tela desses terminais.
+
+\lstinputlisting[caption={\texttt{docker-compose.yml}.},label={lst:compose},language={},numbers=none]{codigo/docker-compose.yml}
+
+\subsection{Cliente publicador}
+O publicador (Listagem~\ref{lst:pub}) envia cinco mensagens, aguardando a confirmação (\texttt{ACCEPTED}) do \textit{broker} e agendando a mensagem seguinte após o intervalo configurado (60~s por padrão do enunciado). O parâmetro \texttt{--address} escolhe \texttt{queue://} ou \texttt{topic://}, e \texttt{--persistent} ativa o cabeçalho \texttt{durable}.
+
+\lstinputlisting[caption={\texttt{publisher.py}.},label={lst:pub}]{codigo/publisher.py}
+
+\subsection{Cliente consumidor}
+Cada instância do consumidor (Listagem~\ref{lst:con}) conecta, lê \textbf{uma} mensagem, confirma o recebimento e encerra. Cinco instâncias são iniciadas em paralelo no terminal A, por um laço de \textit{shell} que executa cada uma em segundo plano: Com \texttt{--durable}, usa-se \texttt{DurableSubscription} e um identificador de contêiner fixo, o que permite ao \textit{broker} reconhecer o mesmo assinante após uma desconexão.
+
+\begin{lstlisting}[language={},numbers=none]
+for i in 1 2 3 4 5; do python3 consumer.py --name C$i --address queue://e1 & done
+\end{lstlisting}
+
+\lstinputlisting[caption={\texttt{consumer.py}.},label={lst:con}]{codigo/consumer.py}
+
+\section{Experimentos e resultados}\label{sec:exp}
+Os experimentos E1 e E2 usam o intervalo de 60~s entre mensagens, conforme o enunciado; como são cinco mensagens, cada execução levou cerca de 4~min entre a primeira e a última publicação. Os experimentos E3 e E4 usam 1~s, pois avaliam o comportamento do \textit{broker} e não a cadência. Em todos, os consumidores foram iniciados antes do publicador, e os horários citados abaixo são os registrados nos próprios \textit{prints}.
+
+\subsection{E1 -- Fila (ponto a ponto)}
+Cinco consumidores (C1 a C5) foram conectados à fila \texttt{e1} às 21:24:48, e o publicador foi iniciado dez segundos depois, com mensagens persistentes. Pela semântica de fila, esperava-se que cada mensagem fosse entregue a um único consumidor. A Figura~\ref{fig:e1pub} mostra o publicador enviando uma mensagem por minuto, de 21:24:58 a 21:28:58, e recebendo a confirmação \texttt{ACCEPTED} do \textit{broker} a cada envio. A Figura~\ref{fig:e1con} mostra o resultado: cada mensagem chegou a um consumidor diferente, no mesmo segundo do envio (\texttt{mensagem-1} para C3, \texttt{mensagem-2} para C5, \texttt{mensagem-3} para C1, \texttt{mensagem-4} para C4 e \texttt{mensagem-5} para C2), sem repetição. A escolha do consumidor é decisão do \textit{broker} e não seguiu a numeração dos nomes. Os consumidores também registraram \texttt{durable=True}, o que mostra que o cabeçalho enviado pelo publicador chega ao receptor. A Figura~\ref{fig:e1st} mostra os contadores da fila após o término: \texttt{Enqueue=5}, \texttt{Dequeue=5}, \texttt{QueueSize=0} e \texttt{Consumers=0} (zero porque os consumidores já tinham encerrado).
+
+\printlog{E1_publisher}{E1: publicador enviando 5 mensagens a cada 60~s.}{fig:e1pub}
+\printlog{E1_consumidores}{E1: cada consumidor lê uma mensagem distinta (fila).}{fig:e1con}
+\printlog{E1_stats}{E1: estatísticas da fila no ActiveMQ (Jolokia).}{fig:e1st}
+
+\subsection{E2 -- Tópico com \textit{fan-out}}
+Cinco consumidores novos (T1 a T5) assinaram o tópico \texttt{e2} às 21:32:20, e o publicador foi iniciado às 21:32:33, sem \texttt{--persistent} (a Figura~\ref{fig:e2pub} mostra \texttt{persistente=False}). Como cada consumidor lê uma única mensagem e encerra, esperava-se que todos recebessem a primeira mensagem e que as seguintes ficassem sem destinatário. Foi o que ocorreu: na Figura~\ref{fig:e2con}, os cinco assinantes receberam a mesma \texttt{mensagem-1} às 21:32:33, em contraste com a Figura~\ref{fig:e1con}, em que cada mensagem foi para um único consumidor. O publicador seguiu enviando as mensagens 2 a 5 até 21:36:36, e o \textit{broker} as confirmou (\texttt{ACCEPTED}) mesmo sem assinantes ativos; como o tópico não retém mensagens para quem não está conectado, elas não foram entregues a ninguém. Na Figura~\ref{fig:e2st}, consultada às 21:38:32, o tópico mostra \texttt{Enqueue=5} (mensagens publicadas) e \texttt{Dequeue=5}, valor compatível com as cinco entregas da \texttt{mensagem-1}, uma por assinante. Esse contraste é a diferença central entre distribuição de carga (fila) e difusão (tópico).
+
+\printlog{E2_publisher}{E2: publicação no tópico.}{fig:e2pub}
+\printlog{E2_consumidores}{E2: os cinco assinantes recebem a mesma mensagem (\textit{fan-out}).}{fig:e2con}
+\printlog{E2_stats}{E2: estatísticas do tópico no ActiveMQ.}{fig:e2st}
+
+\subsection{E3 -- Mensagens persistentes e reinício do \textit{broker}}
+Às 21:39:33 foram publicadas cinco mensagens persistentes (\texttt{durable=True}) na fila \texttt{e3\_persistente} e, em seguida, cinco não persistentes na fila \texttt{e3\_transiente}, sem nenhum consumidor conectado. Antes do reinício (Figura~\ref{fig:e3a}), as duas filas mostravam \texttt{QueueSize=5}, \texttt{Enqueue=5} e \texttt{Dequeue=0}: enquanto o \textit{broker} está ativo, as mensagens não persistentes também ficam retidas, em memória. Em seguida o contêiner foi reiniciado com \texttt{docker compose restart activemq}, que levou cerca de 10~s. Na Figura~\ref{fig:e3d}, às 21:41:16, a fila persistente manteve as cinco mensagens (\texttt{QueueSize=5}), recuperadas do armazenamento em disco, e a transiente estava vazia (\texttt{QueueSize=0}): as mensagens não persistentes foram perdidas. Os contadores \texttt{Enqueue} e \texttt{Dequeue} voltaram a zero nas duas filas, pois são estatísticas da execução atual do \textit{broker}, e não um histórico gravado em disco. A tentativa de consumo confirma o resultado: o consumidor da fila persistente recebeu a \texttt{mensagem-1} (Figura~\ref{fig:e3p}), enquanto o da fila transiente encerrou por \textit{timeout} de 10~s sem receber nada (Figura~\ref{fig:e3t}).
+
+\printlog{E3_stats_antes}{E3: filas antes do reinício do \textit{broker}.}{fig:e3a}
+\printlog{E3_stats_depois}{E3: filas depois do reinício do \textit{broker}.}{fig:e3d}
+\printlog{E3_consumidor_persistente}{E3: consumo da fila persistente após o reinício.}{fig:e3p}
+\printlog{E3_consumidor_transiente}{E3: consumo da fila não persistente após o reinício.}{fig:e3t}
+
+\subsection{E4 -- Assinatura durável}
+No tópico \texttt{e4}, o assinante durável (\texttt{DUR}) e o não durável (\texttt{NAODUR}) foram conectados uma vez, às 21:43:56 e 21:44:00, e encerraram por \textit{timeout} de 4~s sem receber mensagens, ficando offline (parte superior da Figura~\ref{fig:e4pub}). Em seguida, o publicador enviou cinco mensagens persistentes, de 21:44:04 a 21:44:08. Pelo desacoplamento no tempo~\cite{eugster2003}, esperava-se que \texttt{DUR} recebesse a mensagem retida pelo \textit{broker} ao reconectar e que \texttt{NAODUR}, sem estado mantido, não recebesse nada. Foi o que se observou: ao reconectar às 21:44:40, \texttt{DUR} recebeu imediatamente a \texttt{mensagem-1}, publicada 36 segundos antes, quando ele estava offline (Figura~\ref{fig:e4d}); já \texttt{NAODUR}, reconectado às 21:45:33, encerrou por \textit{timeout} de 10~s sem receber nada (Figura~\ref{fig:e4n}).
+
+\printlog{E4_publisher}{E4: registro dos dois assinantes, que ficam offline, e publicação das cinco mensagens.}{fig:e4pub}
+\printlog{E4_dur_retorno}{E4: assinante durável recebe a mensagem retida.}{fig:e4d}
+\printlog{E4_naodur_retorno}{E4: assinante não durável não recebe mensagens.}{fig:e4n}
+
+\subsection{Resumo das opções de envio}
+\begin{table}[H]\centering\caption{Comparação das opções exploradas.}
+\begin{tabular}{p{3.2cm}p{4.6cm}p{5.6cm}}\toprule
+Opção & Entrega & Quando usar\\\midrule
+Fila & Um consumidor por mensagem & Distribuição de trabalho e balanceamento\\
+Tópico (\textit{fan-out}) & Todos os assinantes ativos & Difusão de eventos a vários interessados\\
+Persistente & Sobrevive ao reinício do \textit{broker} & Dados que não podem ser perdidos\\
+Assinatura durável & Retém para assinante offline & Consumidores intermitentes\\\bottomrule
+\end{tabular}\end{table}
+
+\section{Discussão}
+Os experimentos exercitam justamente os recursos que, segundo Bezerra et al.~\cite{bezerra2024}, explicam o custo do AMQP: confirmações por mensagem, gravação em disco e estado de assinatura mantido pelo \textit{broker}. Isso é coerente com o maior número de pacotes (18, contra 8 do MQTT) e a maior memória reportados no artigo. Para aplicações IoT restritas esse custo pode ser proibitivo, mas, em ambientes com energia e rede confiáveis, como o \textit{Farm~1} do estudo, as garantias de entrega compensam. Por fim, o artigo avaliou AMQP com RabbitMQ e sem TLS; este trabalho usa ActiveMQ, de modo que valores absolutos não são comparáveis. Cabe ainda lembrar que as credenciais padrão (\texttt{admin/admin}) usadas aqui são adequadas apenas para laboratório~\cite{mcateer2017}. Como limitações, cada cenário foi executado uma única vez, cada consumidor lê apenas uma mensagem e não foram medidos tempo, memória nem tráfego; os resultados demonstram, portanto, o comportamento funcional de cada opção e não o seu desempenho.
+
+\section{Conclusão}
+Foi construído um ambiente reprodutível com ActiveMQ em Docker e clientes AMQP 1.0 que demonstram fila, \textit{fan-out}, persistência e assinatura durável. Nos testes, a fila entregou cada mensagem a um único consumidor, o tópico entregou a mesma mensagem aos cinco assinantes, as mensagens persistentes sobreviveram ao reinício do \textit{broker} e a assinatura durável recebeu a mensagem publicada enquanto estava offline. A escolha entre essas opções depende do requisito de cada aplicação, em linha com a conclusão do artigo-base de que não existe uma solução única. Como trabalho futuro, sugerem-se TLS, medições de tempo e memória no ActiveMQ e comparação com MQTT.
+
+\section{Entrega}\label{sec:entrega}
+\begin{itemize}
+  \item Repositório do código: \url{https://github.com/SEU_USUARIO/SEU_REPOSITORIO} \textit{(substituir)}.
+  \item Código de apoio do artigo-base: \url{https://github.com/wesleybez/iot_fishfarm_experiment}.
+\end{itemize}
+
+\begin{thebibliography}{9}
+\bibitem{bezerra2024} BEZERRA, W. R.; KOCH, F.; WESTPHALL, C. B. Performance of security options for message protocols: a comparative analysis. \textit{International Journal of Network Management}, v.~34, n.~5, e2274, 2024. DOI: 10.1002/nem.2274.
+\bibitem{eugster2003} EUGSTER, P. T.; FELBER, P. A.; GUERRAOUI, R.; KERMARREC, A.-M. The many faces of publish/subscribe. \textit{ACM Computing Surveys}, v.~35, n.~2, p.~114--131, 2003.
+\bibitem{oasis2012} OASIS. \textit{Advanced Message Queuing Protocol (AMQP) Version 1.0}. OASIS Standard, 2012. Disponível em: \url{https://www.amqp.org/specification/1.0/amqp-org-download}.
+\bibitem{activemq} APACHE SOFTWARE FOUNDATION. \textit{Apache ActiveMQ Classic -- documentação}. Disponível em: \url{https://activemq.apache.org/components/classic/documentation}.
+\bibitem{proton} APACHE SOFTWARE FOUNDATION. \textit{Apache Qpid Proton}. Disponível em: \url{https://qpid.apache.org/proton/}.
+\bibitem{mcateer2017} McATEER, I. N.; MALIK, M. I.; BAIG, Z.; HANNAY, P. Security vulnerabilities and cyber threat analysis of the AMQP protocol for the Internet of Things. In: \textit{15th Australian Information Security Management Conference}, Edith Cowan University, 2017, p.~70--80.
+\end{thebibliography}
+\end{document}

@@ -1,0 +1,12 @@
+services:
+  activemq:
+    image: apache/activemq-classic:6.1.2
+    container_name: activemq
+    ports:
+      - "5672:5672"     # AMQP 1.0
+      - "8161:8161"     # Console web / Jolokia (admin/admin)
+      - "61616:61616"   # OpenWire
+    volumes:
+      - activemq-data:/opt/apache-activemq/data   # persistência KahaDB
+volumes:
+  activemq-data:
